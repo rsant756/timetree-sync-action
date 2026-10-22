@@ -1,4 +1,4 @@
-"""Sync TimeTree events from this week onward; preview deletions only."""
+"""Sync TimeTree events from this week onward, with guarded deletions."""
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -34,6 +34,10 @@ def _google_event_end(google_event: dict):
     if result.tzinfo is None:
         result = result.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
     return result
+
+
+MIN_RAW_EVENTS_FOR_DELETION = 1000  # Baseline: 1,238 on 2026-10-22
+MAX_DELETIONS_PER_RUN = 3
 
 
 def sync():
@@ -114,11 +118,35 @@ def sync():
             if google_end is not None and google_end > week_start:
                 deletion_candidates.append(("missing_from_source", google_event))
 
-    for reason, candidate in deletion_candidates:
-        logger.info("DRY RUN - would delete Google event: reason=%s id=%s",
-                    reason, candidate["id"])
+    deleted_count = 0
+    if deletion_candidates:
+        for reason, candidate in deletion_candidates:
+            logger.info(
+                "Deletion candidate: reason=%s id=%s",
+                reason, candidate["id"],
+            )
+
+        if len(raw_events) < MIN_RAW_EVENTS_FOR_DELETION:
+            logger.warning(
+                "Deletion BLOCKED: TimeTree count %d is below safety threshold %d",
+                len(raw_events), MIN_RAW_EVENTS_FOR_DELETION,
+            )
+        elif len(deletion_candidates) > MAX_DELETIONS_PER_RUN:
+            logger.warning(
+                "Deletion BLOCKED: %d candidates exceed limit %d",
+                len(deletion_candidates), MAX_DELETIONS_PER_RUN,
+            )
+        else:
+            for reason, candidate in deletion_candidates:
+                google.delete_event(Config.GOOGLE_CALENDAR_ID, candidate["id"])
+                deleted_count += 1
+                logger.info(
+                    "Deleted Google event: reason=%s id=%s",
+                    reason, candidate["id"],
+                )
 
     logger.info(
-        "Sync complete: created=%d updated=%d deleted=0 skipped=%d deletion_candidates=%d",
-        created_count, updated_count, skipped_count, len(deletion_candidates),
+        "Sync complete: created=%d updated=%d deleted=%d skipped=%d deletion_candidates=%d",
+        created_count, updated_count, deleted_count, skipped_count,
+        len(deletion_candidates),
     )
