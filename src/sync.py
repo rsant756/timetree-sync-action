@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from config import Config
 from gcalendar import GoogleCalendarClient
 from logger import logger
@@ -43,8 +45,28 @@ def sync():
     logger.info("Selected TimeTree calendar")
 
     raw_events = client.get_events(calendar)
-    events = [Event.from_timetree(raw) for raw in raw_events]
+
+    # 日本時間で今週の月曜日 00:00 を計算
+    now = datetime.now(ZoneInfo("Asia/Tokyo"))
+    week_start = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    
+    # 今週以降の予定のみ対象
+    events = [
+        event
+        for raw in raw_events
+        if (event := Event.from_timetree(raw)).end > week_start
+    ]
+    
     timetree_ids = {event.id for event in events}
+    
+    logger.info(
+        "Filtered events: %d -> %d (from %s)",
+        len(raw_events),
+        len(events),
+        week_start.date(),
+    )
 
     google = GoogleCalendarClient(
         Config.GOOGLE_SERVICE_ACCOUNT_JSON,
@@ -121,13 +143,31 @@ def sync():
     for timetree_id, matches in google_event_map.items():
         if timetree_id in timetree_ids:
             continue
-
+    
         for google_event in matches:
-            google.delete_event(
-                Config.GOOGLE_CALENDAR_ID,
-                google_event["id"],
+            end_data = google_event.get("end", {})
+            end_value = end_data.get("dateTime") or end_data.get("date")
+    
+            if not end_value:
+                continue
+    
+            google_end = datetime.fromisoformat(
+                end_value.replace("Z", "+00:00")
             )
-            deleted_count += 1
+    
+            if google_end.tzinfo is None:
+                google_end = google_end.replace(
+                    tzinfo=ZoneInfo("Asia/Tokyo")
+                )
+    
+            if google_end <= week_start:
+                continue
+    
+            # google.delete_event(
+            #     Config.GOOGLE_CALENDAR_ID,
+            #     google_event["id"],
+            # )
+            # deleted_count += 1
 
     logger.info(
         "Sync complete: created=%d updated=%d deleted=%d skipped=%d",
