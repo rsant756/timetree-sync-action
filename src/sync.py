@@ -163,11 +163,11 @@ def sync():
             if google_end <= week_start:
                 continue
     
-            # google.delete_event(
-            #     Config.GOOGLE_CALENDAR_ID,
-            #     google_event["id"],
-            # )
-            # deleted_count += 1
+            # 初回テスト中は削除を無効化
+            logger.info(
+                "Skipping deletion during initial test: %s",
+                google_event["id"],
+            )
 
     logger.info(
         "Sync complete: created=%d updated=%d deleted=%d skipped=%d",
