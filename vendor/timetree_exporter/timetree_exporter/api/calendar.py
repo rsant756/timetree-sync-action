@@ -169,10 +169,16 @@ class TimeTreeCalendar:
 
         return labels
 
-    def get_events_recur(self, calendar_id: int, since: int):
+    def get_events_recur(self, calendar_id: int, since: int, seen_since=None):
         """
         Get events from the calendar.(Recursively)
         """
+        if seen_since is None:
+            seen_since = set()
+        if since in seen_since:
+            raise RuntimeError(f"Repeated TimeTree pagination cursor: {since}")
+        seen_since.add(since)
+
         url = f"{API_BASEURI}/calendar/{calendar_id}/events/sync?since={since}"
         response = self.session.get(
             url,
@@ -182,13 +188,17 @@ class TimeTreeCalendar:
             },
         )
 
+        response.raise_for_status()
         r_json = response.json()
         self._record_raw_response(f"calendar_{calendar_id}/events_sync_since_{since}", r_json)
 
         events = r_json["events"]
         logger.info("Fetched %d events", len(events))
         if r_json["chunk"] is True:
-            events.extend(self.get_events_recur(calendar_id, r_json["since"]))
+            next_since = r_json.get("since")
+            if next_since is None or next_since == since:
+                raise RuntimeError("Missing or unchanged TimeTree pagination cursor")
+            events.extend(self.get_events_recur(calendar_id, next_since, seen_since))
         return events
 
     @staticmethod
@@ -328,12 +338,16 @@ class TimeTreeCalendar:
                 logger.error("Failed to get events of the calendar")
             logger.error(response.text)
 
+        response.raise_for_status()
         r_json = response.json()
         self._record_raw_response(f"calendar_{calendar_id}/events_sync", r_json)
         events = r_json["events"]
         logger.info("Fetched %d events", len(events))
         if r_json["chunk"] is True:
-            events.extend(self.get_events_recur(calendar_id, r_json["since"]))
+            next_since = r_json.get("since")
+            if next_since is None:
+                raise RuntimeError("Missing TimeTree pagination cursor")
+            events.extend(self.get_events_recur(calendar_id, next_since))
 
         logger.debug(
             "Top 5 fetched events: \n %s",
