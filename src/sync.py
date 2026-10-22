@@ -30,7 +30,7 @@ def _google_event_end(google_event: dict):
     value = data.get("dateTime") or data.get("date")
     if not value:
         return None
-    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    result = datetime.fromisoformat(value)
     if result.tzinfo is None:
         result = result.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
     return result
