@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import ClassVar
 from zoneinfo import ZoneInfo
 
@@ -54,7 +54,8 @@ class Event:
                 "date": self.start.strftime("%Y-%m-%d"),
             }
             event["end"] = {
-                "date": self.end.strftime("%Y-%m-%d"),
+                # TimeTree includes the last day; Google uses an exclusive end date.
+                "date": (self.end.date() + timedelta(days=1)).isoformat(),
             }
         else:
             event["start"] = {
